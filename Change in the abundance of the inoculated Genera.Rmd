@@ -1,0 +1,511 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(phyloseq)
+library(microViz)
+library(ggpubr)
+library(microbiome)
+library(openxlsx)
+library(patchwork)
+library(viridis)
+library(readxl)
+
+
+rarefied16s= readRDS("Rarefied16S.RDS")
+
+#Subset onlyu C13 treatment
+c13= subset_samples(rarefied16s, Treatment== "C13")
+
+#Aglomarate to Genus level
+genus= tax_glom(c13, taxrank = "Genus")
+
+
+
+#add a variable for merging the phyloseq object
+
+TF=c("0_heavy",
+     "0_light",
+     "0_heavy",
+     "0_light",
+     "0_heavy",
+     "0_light",
+     "7_heavy",
+     "7_light",
+     "7_heavy",
+     "7_light",
+     "7_heavy",
+     "7_light",
+     "15_heavy",
+     "15_light",
+     "15_heavy",
+     "15_light",
+     "15_heavy",
+     "15_light",
+     "30_heavy",
+     "30_light",
+     "30_heavy",
+     "30_light",
+     "30_heavy",
+     "30_light")
+
+#Subset ST Soil samples
+Pereyra= subset_samples(genus, Soil== "Pereyra")
+Pereyra@sam_data$TF=TF
+Pereyra@sam_data
+
+#merge by the variable created
+Spmerge= merge_samples(Pereyra, group= "TF", fun=mean)
+
+Fr= c("heavy","light","heavy","light","heavy","light","heavy","light")
+
+#add the information to the merged phyloseq object
+Spmerge@sam_data$Fraction= Fr
+Spmerge@sam_data
+
+#Repeat the same for LT soil
+IPK=subset_samples(genus, Soil== "IPK")
+IPK@sam_data
+
+FrI=c("0_heavy","0_light","0_heavy","0_light","0_heavy","0_light","7_heavy",
+      "7_light","7_heavy","7_light","7_heavy","7_light","15_heavy","15_light",
+      "15_heavy","15_light","15_light")
+
+IPK@sam_data$FR= FrI
+Ipkm= merge_samples(IPK, group= "FR", fun=mean)
+
+Ipkm@sam_data$Fraction= c("heavy", "light","heavy", "light","heavy", "light")
+
+
+Pereyra@sam_data$Fraction= factor(Pereyra@sam_data$Fraction,
+                                  levels = c("light", "heavy"),
+                                  labels = c("Light", "Heavy"))
+
+Spmerge@sam_data$Time = factor(Spmerge@sam_data$Time,
+                               levels= c("0", "7", "15", "30"))
+
+Spmerge@sam_data$Fraction= factor(Spmerge@sam_data$Fraction,
+                                  levels = c("heavy", "light"),
+                                  labels = c("Heavy", "Light"))
+#transfor the to relative abundance
+Spmerget= transform_sample_counts(Spmerge, function(x) 100 * x/sum(x))
+
+
+
+Ipkm@sam_data$Fraction= factor(Ipkm@sam_data$Fraction,
+                               levels = c("heavy", "light"),
+                               labels = c("Heavy", "Light"))
+
+IpKmt= transform_sample_counts(Ipkm, function(x) 100 * x/sum(x))
+
+
+# Replace "Burkholderia-Caballeronia-Paraburkholderia" for "Burkholderia"
+tax_table(Spmerget)[,colnames(tax_table(Spmerge))] <- gsub(tax_table(Spmerge)[,colnames(tax_table(Spmerge))],
+                                                          pattern="Burkholderia-Caballeronia-Paraburkholderia",
+                                                          replacement="Burkholderia") 
+
+#Define a palette
+mypal=tax_palette(Spmerget, rank = "Genus", pal = "brewerPlus", n = 14, 
+                  add = c(Other = "grey80"))
+
+
+mypal["Burkholderia"]="#32648EFF"
+mypal["Sphingobium"]="#20A386FF"
+mypal %>% tax_palette_plot()
+
+#Create the graphs
+g4=Spmerget %>%
+  tax_fix(unknowns = c()) %>%
+  comp_barplot(
+    tax_level = "Genus", n_taxa = 2,
+    label= "Time",
+    palette= mypal,
+    facet_by = "Fraction",
+    tax_transform_for_plot= "identity",
+    bar_outline_colour = NA,
+    sample_order = c("0_heavy",
+                     "0_light",
+                     "7_heavy",
+                     "7_light",
+                     "15_heavy",
+                     "15_light",
+                     "30_heavy",
+                     "30_light"),
+    bar_width = 0.85
+  ) + rotate_x_text()+ ylab("Relative Abundance")+
+  labs(fill="Genus")+ theme(axis.text.x = element_text(size=8))+
+  guides(fill=guide_legend(ncol=1))+ ggtitle("ST Soil")
+
+g4= g4+ theme_pubclean()+  theme(legend.text = element_text(size=10),
+                                 title = element_text(size=11),
+                                 axis.text = element_text(size=10),
+                                 strip.text = element_text(size=10),
+                                 legend.key.size = unit(5, 'mm'),
+                                 panel.grid.major.y = element_blank(),
+                                 legend.position = "right")+
+  theme(axis.title.y = element_blank())+ ggtitle(NULL)
+
+
+
+
+#Repeat for LT SOIL samples
+topTaxa <- IpKmt%>%
+  tax_top(n = 2, rank = "Genus") %>%
+  sort() 
+
+tax_table(IpKmt)[,colnames(tax_table(Ipkm))] <- gsub(tax_table(IpKmt)[,colnames(tax_table(IpKmt))],
+                                                    pattern="Burkholderia-Caballeronia-Paraburkholderia",
+                                                    replacement="Burkholderia") 
+
+mypalIPK=tax_palette(IpKmt, rank = "Genus", pal = "brewerPlus", n = 14, 
+                     add = c(Other = "grey80"))
+
+
+
+names(mypalIPK) <- c("Burkholderia", setdiff(names(mypalIPK), "Burkholderia"))
+mypalIPK["Burkholderia"]="#32648EFF"
+mypalIPK["Sphingobium"]="#20A386FF"
+mypalIPK %>% tax_palette_plot()
+
+order= c("Burkholderia", "Sphingobium")
+
+interestingGenera <- IpKmt %>%
+  tax_select("Proteobacteria") %>%
+  tax_top(n = 2, rank = "Genus")
+interestingGenera
+
+g3=IpKmt %>%
+  tax_fix(unknowns = c()) %>%
+  comp_barplot(
+    tax_level = "Genus", n_taxa = 2,
+    label= "Time",
+    facet_by = "Fraction",
+    palette= mypalIPK,
+    tax_transform_for_plot= "identity",
+    bar_outline_colour = NA,
+    sample_order = c("0_heavy",
+                     "0_light",
+                     "7_heavy",
+                     "7_light",
+                     "15_heavy",
+                     "15_light"),
+    bar_width = 0.85,
+    tax_order = order
+  ) + rotate_x_text()+ ylab("Relative Abundance")+
+  labs(fill="Genus")+ theme(axis.text.x = element_text(size=8))+
+  guides(fill=guide_legend(ncol=1)) + ggtitle("LT Soil") + xlab("Time (days)")+
+  theme_pubclean()+
+  theme(legend.text = element_text(size=10),
+        title = element_text(size=11),
+        axis.text = element_text(size=10),
+        strip.text = element_text(size=10),
+        legend.key.size = unit(5, 'mm'),
+        panel.grid.major.y = element_blank(),
+        legend.position = "right")+
+  theme(axis.title.y = element_blank())+ ggtitle(NULL)
+
+
+```
+
+
+
+```{r}
+
+Control_SP <- read_excel("Control SP.xlsx")
+
+
+Control_SP$Genus= factor(Control_SP$Genus,
+                         levels= c("Other", "Sphingobium", "Burkholderia"))
+
+g16=ggplot(Control_SP, aes(Fraction, Abundance, fill= Genus))+
+  geom_bar(stat = "identity", width= 0.4)+ facet_wrap(~Fraction)+ theme_pubclean() +
+  scale_fill_manual(values = c("grey80","#20A386FF", "#32648EFF")) + 
+  theme(legend.position = "none",axis.title.x = element_blank(),axis.text.x = element_blank())+ 
+  ylab("Relative Abundance")
+  
+
+G8=g16+ g4 +  plot_layout(widths = c(0.75, 2)) + plot_annotation(title = "ST soil", theme = theme(plot.title = element_text(hjust = 0.08)))
+
+  
+
+IPK_control <- read_excel("IPK control.xlsx")
+
+IPK_control$Genus= factor(IPK_control$Genus,
+                         levels= c("Other", "Sphingobium", "Burkholderia"))
+g17=ggplot(IPK_control, aes(Fraction, Abundance, fill= Genus))+
+  geom_bar(stat = "identity", width= 0.4)+ facet_wrap(~Fraction)+ theme_pubclean() +
+ scale_fill_manual(values = c("grey80","#20A386FF", "#32648EFF")) + 
+  theme(legend.position = "none",axis.title.x = element_blank(),axis.text.x = element_blank())+ 
+  ylab("Relative Abundance")
+
+
+
+
+G7=g17 + g3 +  plot_layout(widths = c(0.75, 2)) + plot_annotation(title = "LT soil", theme = theme(plot.title = element_text(hjust = 0.08)))
+
+
+
+
+combined_plot=(G8/ G7) +
+  plot_annotation(
+     tag_levels = list(c("A", "","B")))+ 
+  plot_layout(guides = "collect")
+
+
+ggsave("relative-abundance-genus-Revised.jpeg",combined_plot, dpi=300, height = 6.5, width = 10, path = "C:/Users/esteb/Desktop/Investigacion/paper sip/Revisiones/Figuras")
+
+ggsave("figure 2-Revised.tiff",combined_plot, dpi=300, height = 6.5, width = 10, path = "C:/Users/esteb/Desktop/Investigacion/paper sip/Revisiones/Figuras")
+
+#ggsave("relative-abundance-genus-Revised1.pdf",combined_plot, dpi=300, height = 6.5, width = 10, 
+       #path = "C:/Users/esteb/Desktop/Investigacion/secuencias sip/graficos")
+
+
+
+
+```
+
+```{r}
+#calculate the differences in the abundance of the inoculated genera
+
+library(rstatix)
+library(dplyr)
+library(tidyr)
+library(PMCMRplus)
+
+# Subset samples with Treatment "C13"
+c13= subset_samples(rarefied16s, Treatment== "C13")
+
+# Aggregate taxa at Genus level
+genus= tax_glom(c13, taxrank = "Genus")
+
+# Transform data to compositional (relative abundance)
+genus= transform(genus, transform = "compositional")
+
+# Subset samples from ST soil
+SP= subset_samples(genus, Soil== "Pereyra")
+
+
+# Separate light and heavy fractions
+SPc13L= subset_samples(SP, Fraction== "light")
+SPc13H= subset_samples(SP, Fraction== "heavy")
+
+# Melt the phyloseq object for light fraction
+SPl.m= psmelt(SPc13L)
+
+# Extract Sphingobium data from light fraction
+Sphingobium = SPl.m [which(SPl.m$Genus == "Sphingobium"), ]
+
+
+# Prepare data for Friedman test (light fraction)
+Sphi.RA.L= Sphingobium %>% select(Abundance, Time, Subject)
+Sph.L.RA=Sphi.RA.L %>% pivot_wider(id_cols = Subject, names_from = Time, values_from = Abundance)
+Sph.L= Sph.L.RA[2:5]
+rownames(Sph.L)= Sph.L.RA$Subject
+Sph.L= as.matrix(Sph.L)
+
+# Perform Friedman test
+friedmanTest(Sph.L)
+
+#Friedman rank sum test
+
+#data:  y
+#Friedman chi-squared = 8.2, df = 3, p-value = 0.04205
+
+# Perform post-hoc test (Conover's test)
+frdAllPairsConoverTest(Sph.L, p.adjust.method = "single-step")
+
+#Pairwise comparisons using Conover's all-pairs test for a two-way balanced complete block design
+
+
+#7       15      30   
+#15 0.046   -       -    
+#30 8.1e-09 0.003   -    
+#0  2.6e-11 8.8e-05 0.822
+
+#P value adjustment method: single-step
+
+
+
+Sphingobium %>% friedman_effsize(Abundance ~ Time |Subject)
+
+
+# Repeat analysis for Burkholderia (light fraction)
+Burkholderia= SPl.m [which(SPl.m$Genus == "Burkholderia-Caballeronia-Paraburkholderia"), ]
+
+Burkholderia %>%
+  group_by(Time) %>%
+  shapiro_test(Abundance)
+
+
+res.fried.bk <- Burkholderia %>% friedman_test(Abundance ~ Time |Subject)
+res.fried.bk
+
+Burkholderia %>% friedman_effsize(Abundance ~ Time |Subject)
+
+#
+Bk.RA.L= Burkholderia %>% select(Abundance, Time, Subject)
+
+Bk.L.RA=Bk.RA.L %>% pivot_wider(id_cols = Subject, names_from = Time, values_from = Abundance)
+
+Bk.L= Bk.L.RA[2:5]
+
+rownames(Bk.L)= Bk.L.RA$Subject
+
+Bk.L= as.matrix(Bk.L)
+
+
+friedmanTest(Bk.L)
+
+#Friedman rank sum test
+
+#data:  y
+#Friedman chi-squared = 9, df = 3, p-value = 0.02929
+
+
+frdAllPairsConoverTest(Bk.L, p.adjust.method = "single-step")
+
+#  7      15     30    
+#15 <2e-16 -      -     
+#30 <2e-16 <2e-16 -     
+#0  <2e-16 <2e-16 <2e-16
+
+
+
+##### Repeat the analysis for the Heavy Fraction
+SPh.m= psmelt(SPc13H)
+
+Sphingobium.h = SPh.m [which(SPh.m$Genus == "Sphingobium"), ]
+
+Sphingobium.h %>%
+  group_by(Time) %>%
+  shapiro_test(Abundance)
+
+
+Sphi.RA.H= Sphingobium.h %>% select(Abundance, Time, Subject)
+
+Sph.H.RA=Sphi.RA.H %>% pivot_wider(id_cols = Subject, names_from = Time, values_from = Abundance)
+
+Sph.H= Sph.H.RA[2:5]
+
+rownames(Sph.H)= Sph.H.RA$Subject
+View(Sph.H)
+Sph.H= as.matrix(Sph.H)
+
+friedmanTest(Sph.H)
+
+write.csv2(Sphingobium.h, "read-Sphingobium-SP.csv")
+
+#realizo el test de Friedman, ya que las medidas son repetidas (es como un anova con medidas repetidas para datos no normales)
+res.fried.h <- Sphingobium.h %>% friedman_test(Abundance ~ Time |Subject)
+res.fried.h
+
+Sphingobium.h %>% friedman_effsize(Abundance ~ Time |Subject)
+#Abundance     3         7     3 0.0719 Friedman test
+
+#Burkholderia
+Burkholderia.h= SPh.m [which(SPh.m$Genus == "Burkholderia-Caballeronia-Paraburkholderia"), ]
+res.fried.h.bk <- Burkholderia.h %>% friedman_test(Abundance ~ Time |Subject)
+res.fried.h.bk
+
+Burkholderia.h %>% friedman_effsize(Abundance ~ Time |Subject)
+
+# Abundance     3       6.6     3 0.0858 Friedman test
+
+
+
+##### Repeat the analysis for LT SOIL#######
+IPK= subset_samples(genus, Soil== "IPK")
+
+IPKc13L= subset_samples(IPK, Fraction== "light")
+IPKc13H= subset_samples(IPK, Fraction== "heavy")
+
+IPKl.m= psmelt(IPKc13L)
+
+Sphingobium.IPK = IPKl.m [which(IPKl.m$Genus == "Sphingobium"), ]
+
+
+
+#####realizo la tabla para estadistica
+Sphi.IPK.L= Sphingobium.IPK %>% select(Abundance, Time, Subject)
+
+Sph.IPKl=Sphi.IPK.L %>% pivot_wider(id_cols = Subject, names_from = Time, values_from = Abundance)
+
+Sph.IPK= Sph.IPKl[2:4]
+
+rownames(Sph.IPK)= Sph.IPKl$Subject
+
+Sph.IPK= as.matrix(Sph.IPK)
+
+friedmanTest(Sph.IPK)
+
+#Friedman rank sum test
+
+#data:  y
+#Friedman chi-squared = 2, df = 2, p-value = 0.3679
+
+
+#realizo el test de Friedman, ya que las medidas son repetidas (es como un anova con medidas repetidas para datos no normales)
+res.fried.IPK <- Sphingobium.IPK %>% friedman_test(Abundance ~ Time |Subject)
+res.fried.IPK
+
+Sphingobium %>% friedman_effsize(Abundance ~ Time |Subject)
+
+
+
+#Burkholderia
+Burkholderia.IPK= IPKl.m [which(IPKl.m$Genus == "Burkholderia-Caballeronia-Paraburkholderia"), ]
+res.fried.IPK.bk <- Burkholderia.IPK %>% friedman_test(Abundance ~ Time |Subject)
+res.fried.IPK.bk
+View(Burkholderia.IPK)
+Burkholderia.IPK %>% friedman_effsize(Abundance ~ Time |Subject)
+
+#.y.           n statistic    df      p method       
+#* <chr>     <int>     <dbl> <dbl>  <dbl> <chr>        
+#  1 Abundance     3      4.67     2 0.0970 Friedman test
+
+
+##### Fraccion pesada
+IPKh.m= psmelt(IPKc13H)
+
+Sphingobium.IPKh = IPKh.m [which(IPKh.m$Genus == "Sphingobium"), ]
+View(Sphingobium.IPKh)
+
+#realizo una prospeccion grafica de los datos
+ggboxplot(Sphingobium.IPKh, x = "Time", y = "Abundance", add = "jitter")
+
+#realizo el test de Friedman, ya que las medidas son repetidas (es como un anova con medidas repetidas para datos no normales)
+res.fried.IPKh <- Sphingobium.IPKh %>% kruskal_test(Abundance ~ Time)
+res.fried.IPKh
+
+Sphingobium.h %>% friedman_effsize(Abundance ~ Time |Subject)
+
+pwc.ipkh <- Sphingobium.IPKh %>%
+  dunn_test(Abundance ~ Time, p.adjust.method = "BH")
+
+pwc.ipkh
+
+pwc.ipkh <- pwc.ipkh %>% add_xy_position(x = "Time")
+g8=ggboxplot(Sphingobium.IPKh, x = "Time", y = "Abundance", add = "point") +
+  stat_pvalue_manual(pwc.ipkh, hide.ns = TRUE) +
+  labs(
+    subtitle = get_test_label(res.fried.IPKh,  detailed = TRUE),
+    caption = get_pwc_label(pwc.ipkh)
+  ) + ggtitle("Sphingobium IPK Soil-h")
+
+ggsave("Sphi-ipkh.jpg", g8)
+
+#Burkholderia
+Burkholderia.ipkh= IPKh.m [which(IPKh.m$Genus == "Burkholderia-Caballeronia-Paraburkholderia"), ]
+res.fried.h.bk <- Burkholderia.h %>% kruskal_test(Abundance ~ Time)
+res.fried.h.bk
+
+Burkholderia.h %>% friedman_effsize(Abundance ~ Time |Subject)
+
+
+
+
+```
+
